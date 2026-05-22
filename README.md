@@ -19,24 +19,14 @@ Official Apify plugin for GitHub Copilot — adds an `apify` agent, an Apify MCP
 
 ## Installation
 
-Clone (or copy) the plugin contents into your project repository so that the Copilot-specific directories end up in the right places:
+Clone (or copy) the plugin contents into your project repository so that the Copilot-specific directories (apify folder with plugin.json and .mcp.json) are in the right places.
 
 ```bash
 # Clone the plugin repo
 git clone https://github.com/apify/apify-copilot-plugin /tmp/apify-copilot
 
-# Copy Copilot agent, skills, and instructions into .github/
-mkdir -p .github
-cp -r /tmp/apify-copilot/agents .github/
-cp -r /tmp/apify-copilot/skills .github/
-cp -r /tmp/apify-copilot/instructions .github/
 
-# Copy MCP server config into .vscode/
-mkdir -p .vscode
-cp /tmp/apify-copilot/.vscode/mcp.json .vscode/mcp.json
 ```
-
-After copying, reload VS Code (View → Command Palette → "Developer: Reload Window").
 
 ### Prerequisites
 
