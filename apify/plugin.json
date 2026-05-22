@@ -1,0 +1,13 @@
+{
+	"name": "apify",
+	"description": "Apify platform integration for web scraping, automation, and Actor development",
+	"version": "1.0.0",
+	"author": {
+		"name": "Apify",
+		"email": "support@apify.com",
+		"url": "https://apify.com"
+	},
+	"skills": "skills/",
+	"agents": "agents/",
+	"mcpServers": ".mcp.json"
+}
