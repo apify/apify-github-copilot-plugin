@@ -1,6 +1,6 @@
 {
 	"name": "apify",
-	"description": "Apify platform integration for web scraping, automation, and Actor development",
+	"description": "Extract data from any website with thousands of trusted scrapers, crawlers, and automations from Apify Store. Integrate ready-made Actors to access all popular social media, video, e-commerce, search engines, maps, and travel sites. Build, debug, publish, and monetize new Actors on Apify.",
 	"version": "1.0.0",
 	"author": {
 		"name": "Apify",
