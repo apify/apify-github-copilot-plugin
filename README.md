@@ -9,7 +9,6 @@ Official Apify plugin for GitHub Copilot — adds an `apify` agent, an Apify MCP
 | Component | Name | Purpose |
 |---|---|---|
 | Agent (entry point) | `apify` | Routes each Apify request to the right MCP tool, CLI-based flow, or internal skill. **This is the one you should invoke.** |
-| Routing rule | `apify-routing` | Tells Copilot to send Apify-related requests through the `apify` agent first instead of calling `apify-*` skills directly. |
 | MCP server | `apify` (`https://mcp.apify.com/`) | Configured in `.vscode/mcp.json`; lets the agent search the Apify Store, fetch Actor details, run Actors, retrieve dataset items, and look up Apify docs when MCP is available. |
 | Skill | `apify-actor-development` | Create, debug, test, and deploy a new Apify Actor from scratch. |
 | Skill | `apify-actorization` | Convert an existing JavaScript, TypeScript, Python, or CLI-based project into an Apify Actor. |
@@ -19,24 +18,14 @@ Official Apify plugin for GitHub Copilot — adds an `apify` agent, an Apify MCP
 
 ## Installation
 
-Clone (or copy) the plugin contents into your project repository so that the Copilot-specific directories end up in the right places:
+Clone (or copy) the plugin contents into your project repository so that the Copilot-specific directories (apify folder with plugin.json and .mcp.json) are in the right places.
 
 ```bash
 # Clone the plugin repo
 git clone https://github.com/apify/apify-copilot-plugin /tmp/apify-copilot
 
-# Copy Copilot agent, skills, and instructions into .github/
-mkdir -p .github
-cp -r /tmp/apify-copilot/agents .github/
-cp -r /tmp/apify-copilot/skills .github/
-cp -r /tmp/apify-copilot/instructions .github/
 
-# Copy MCP server config into .vscode/
-mkdir -p .vscode
-cp /tmp/apify-copilot/.vscode/mcp.json .vscode/mcp.json
 ```
-
-After copying, reload VS Code (View → Command Palette → "Developer: Reload Window").
 
 ### Prerequisites
 
