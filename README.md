@@ -1,8 +1,8 @@
 # Apify for GitHub Copilot
 
-Official Apify plugin for GitHub Copilot — adds an `apify` agent, an Apify MCP server connection, a routing instruction, and a set of internal skills for three Apify workflows: using existing Actors from the Apify Store, building or actorizing custom Actors, and integrating Apify into existing applications.
+Official Apify plugin for GitHub Copilot. It adds an `apify` agent, an Apify MCP server connection, a routing instruction, and a set of internal skills for three Apify workflows: using existing Actors from the Apify Store, building or actorizing custom Actors, and integrating Apify into existing applications.
 
-> **Apify** is a platform of thousands of serverless cloud programs called **Actors** for web scraping, browser automation, and data extraction. Learn more at [apify.com](https://apify.com).
+> **Apify** is the largest marketplace of tools for AI: ready-made **Actors** you can run, or build your own. Find your Actor at Apify Store.
 
 ## What you get
 
