@@ -1,12 +1,13 @@
 name: Sync plugin version and SHA to Awesome Copilot
 
-# When a GitHub Release is published (or on manual dispatch), bump the plugin
-# version in the local manifests on `main`, then open (or update) a PR against
-# github/awesome-copilot that re-pins the `apify` entry in plugins/external.json
-# to the new version and commit SHA. The generated .github/plugin/marketplace.json
-# in the upstream repo is regenerated so its "generated files" check passes.
+# Opens (or updates) a PR against github/awesome-copilot that re-pins the `apify`
+# entry in plugins/external.json to a commit of this repo, with the version read
+# from apify/plugin.json at that commit (upstream's version-match gate requires
+# the two to agree). The generated .github/plugin/marketplace.json in the
+# upstream repo is regenerated so its "generated files" check passes.
 #
-# Prereleases are skipped so the public marketplace only tracks stable versions.
+# release.yml calls this after every stable release. To re-sync manually, run it
+# from the Actions tab: it pins the branch or tag picked in "Use workflow from".
 #
 # Prerequisites:
 #   1. A fork of github/awesome-copilot must exist at $FORK.
@@ -15,27 +16,25 @@ name: Sync plugin version and SHA to Awesome Copilot
 #      repositories).
 #   3. The `apify` entry must already be merged upstream (update-only — it does
 #      not create the entry on the first run).
-#   4. `main` must accept direct pushes from GitHub Actions (no branch protection
-#      requiring PRs).
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      version:
-        description: Version to publish (defaults to apify/plugin.json version)
+      ref:
+        description: Commit SHA of this repository to pin
+        required: true
+        type: string
+      release_url:
+        description: GitHub release URL linked from the upstream PR
         required: false
         type: string
+    secrets:
+      MARKETPLACE_PAT:
+        required: true
+  workflow_dispatch:
 
-# GITHUB_TOKEN pushes the version bump to this repo's `main`; all upstream
-# writes happen against the fork via MARKETPLACE_PAT.
 permissions:
-  contents: write
-
-concurrency:
-  group: sync-marketplace
-  cancel-in-progress: false
+  contents: read
 
 env:
   UPSTREAM: github/awesome-copilot
@@ -45,80 +44,26 @@ env:
 
 jobs:
   sync-marketplace:
-    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: sync-marketplace
+      cancel-in-progress: false
     steps:
       - name: Check out the plugin repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 0
+          ref: ${{ inputs.ref || github.sha }}
 
-      - name: Resolve and validate version
-        id: version
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          INPUT_VERSION: ${{ inputs.version }}
+      - name: Resolve the version and SHA to pin
+        id: plugin
         run: |
           set -euo pipefail
-
-          if [ "$EVENT_NAME" = "release" ]; then
-            VERSION="${RELEASE_TAG#v}"
-          elif [ -n "${INPUT_VERSION:-}" ]; then
-            VERSION="${INPUT_VERSION#v}"
-          else
-            VERSION="$(jq -r '.version' apify/plugin.json)"
-          fi
-
-          # Mirrors SEMVER_PATTERN in awesome-copilot's eng/external-plugin-validation.mjs.
-          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-            echo "::error::Invalid semantic version '${VERSION}'. See https://semver.org"
-            exit 1
-          fi
-
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Resolved version: ${VERSION}"
-
-      - name: Bump version in local manifests and push to main
-        id: bump
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          BASE_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-
-          # Replace version values in place rather than re-serializing with jq, so
-          # indentation and the missing trailing newline are preserved byte-for-byte.
-          node -e '
-            const fs = require("fs");
-            const version = process.env.VERSION;
-            for (const file of ["apify/plugin.json", ".github/plugin/marketplace.json"]) {
-              const content = fs.readFileSync(file, "utf8");
-              const updated = content.replace(/("version"\s*:\s*)"[^"]+"/g, `$1"${version}"`);
-              JSON.parse(updated);
-              fs.writeFileSync(file, updated, "utf8");
-            }
-          '
-          jq -e --arg v "$VERSION" '.version == $v' apify/plugin.json > /dev/null
-          jq -e --arg v "$VERSION" \
-            '.metadata.version == $v and (.plugins | length > 0 and all(.[]; .version == $v))' \
-            .github/plugin/marketplace.json > /dev/null
-
-          if git diff --quiet; then
-            echo "Local manifests already at ${VERSION}; no version bump needed."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add apify/plugin.json .github/plugin/marketplace.json
-            git commit -m "chore: bump version to ${VERSION}"
-            git push origin "HEAD:${BASE_BRANCH}"
-          fi
-
           SHA="$(git rev-parse HEAD)"
+          VERSION="$(jq -r '.version' apify/plugin.json)"
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "Plugin SHA: ${SHA}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Pinning ${PLUGIN_NAME} ${VERSION} at ${SHA}"
 
       - name: Check out the apify fork of awesome-copilot
         uses: actions/checkout@v4
@@ -145,8 +90,8 @@ jobs:
         id: update
         working-directory: marketplace
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          PLUGIN_SHA: ${{ steps.bump.outputs.sha }}
+          VERSION: ${{ steps.plugin.outputs.version }}
+          PLUGIN_SHA: ${{ steps.plugin.outputs.sha }}
         run: |
           set -euo pipefail
 
@@ -174,10 +119,10 @@ jobs:
         working-directory: marketplace
         env:
           GH_TOKEN: ${{ secrets.MARKETPLACE_PAT }}
-          VERSION: ${{ steps.version.outputs.version }}
-          PLUGIN_SHA: ${{ steps.bump.outputs.sha }}
-          SHORT_SHA: ${{ steps.bump.outputs.short_sha }}
-          RELEASE_URL: ${{ github.event.release.html_url }}
+          VERSION: ${{ steps.plugin.outputs.version }}
+          PLUGIN_SHA: ${{ steps.plugin.outputs.sha }}
+          SHORT_SHA: ${{ steps.plugin.outputs.short_sha }}
+          RELEASE_URL: ${{ inputs.release_url }}
         run: |
           set -euo pipefail
 
@@ -201,9 +146,11 @@ jobs:
             body="${body}"$'\n\n'"Release notes: ${RELEASE_URL}"
           fi
 
+          # `gh pr list --head` rejects "owner:branch", so filter the fork owner separately.
           existing="$(gh pr list --repo "$UPSTREAM" \
-            --head "${fork_owner}:${PR_BRANCH}" --base main --state open \
-            --json number --jq '.[0].number // empty')"
+            --head "$PR_BRANCH" --base main --state open \
+            --json number,headRepositoryOwner \
+            --jq "map(select(.headRepositoryOwner.login == \"${fork_owner}\"))[0].number // empty")"
 
           if [ -n "$existing" ]; then
             gh pr edit "$existing" --repo "$UPSTREAM" --title "$title" --body "$body"
