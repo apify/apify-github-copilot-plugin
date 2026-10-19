@@ -62,6 +62,10 @@ jobs:
           echo "::error title=Missing custom_version::release_type is 'custom' but custom_version is empty. Provide a custom version (e.g. 1.1.0) and re-run the workflow."
           exit 1
 
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: apify/actions/git-cliff-release@v1.1.2
         name: Prepare release metadata
         id: release_metadata
