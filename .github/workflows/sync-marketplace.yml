@@ -1,0 +1,172 @@
+name: Sync plugin version and SHA to Awesome Copilot
+
+# Opens (or updates) a PR against github/awesome-copilot that re-pins the `apify`
+# entry in plugins/external.json to a commit of this repo, with the version read
+# from apify/plugin.json at that commit (upstream's version-match gate requires
+# the two to agree). The generated .github/plugin/marketplace.json in the
+# upstream repo is regenerated so its "generated files" check passes.
+#
+# release.yml calls this after every stable release. To re-sync manually, run it
+# from the Actions tab: it pins the branch or tag picked in "Use workflow from".
+#
+# Prerequisites:
+#   1. A fork of github/awesome-copilot must exist at $FORK.
+#   2. MARKETPLACE_PAT must be a PAT that can push to $FORK and create PRs in
+#      $UPSTREAM (fine-grained tokens typically must be granted access to both
+#      repositories).
+#   3. The `apify` entry must already be merged upstream (update-only — it does
+#      not create the entry on the first run).
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit SHA of this repository to pin
+        required: true
+        type: string
+      release_url:
+        description: GitHub release URL linked from the upstream PR
+        required: false
+        type: string
+    secrets:
+      MARKETPLACE_PAT:
+        required: true
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM: github/awesome-copilot
+  FORK: apify/awesome-copilot
+  PLUGIN_NAME: apify
+  PR_BRANCH: apify/update-sha
+
+jobs:
+  sync-marketplace:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: sync-marketplace
+      cancel-in-progress: false
+    steps:
+      - name: Check out the plugin repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Resolve the version and SHA to pin
+        id: plugin
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          VERSION="$(jq -r '.version' apify/plugin.json)"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Pinning ${PLUGIN_NAME} ${VERSION} at ${SHA}"
+
+      - name: Check out the apify fork of awesome-copilot
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FORK }}
+          persist-credentials: false
+          path: marketplace
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Sync fork's main onto upstream main
+        working-directory: marketplace
+        run: |
+          set -euo pipefail
+          git remote add upstream "https://github.com/${UPSTREAM}.git"
+          git fetch upstream main
+          git checkout -B main upstream/main
+
+      - name: Re-pin the apify entry and regenerate marketplace outputs
+        id: update
+        working-directory: marketplace
+        env:
+          VERSION: ${{ steps.plugin.outputs.version }}
+          PLUGIN_SHA: ${{ steps.plugin.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          # Update-only: bail out cleanly if the entry isn't upstream yet.
+          if ! jq -e --arg n "$PLUGIN_NAME" 'any(.[]; .name == $n)' plugins/external.json >/dev/null; then
+            echo "::warning::No '$PLUGIN_NAME' entry found in $UPSTREAM yet — submit the first PR manually. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          jq --indent 2 --arg n "$PLUGIN_NAME" --arg v "$VERSION" --arg sha "$PLUGIN_SHA" \
+            '(.[] | select(.name == $n) | .version) = $v
+             | (.[] | select(.name == $n) | .source.sha) = $sha' \
+            plugins/external.json > plugins/external.json.tmp
+          mv plugins/external.json.tmp plugins/external.json
+
+          npm ci --ignore-scripts
+          npm run plugin:validate
+          npm run plugin:generate-marketplace
+
+          others='.plugins | map(select(.name != env.PLUGIN_NAME))'
+          if [ "$(git show HEAD:.github/plugin/marketplace.json | jq -c "$others")" != "$(jq -c "$others" .github/plugin/marketplace.json)" ]; then
+            git diff .github/plugin/marketplace.json
+            echo "::error::Regenerated marketplace.json changes entries other than '$PLUGIN_NAME'; $UPSTREAM main is stale. Re-run after upstream regenerates it."
+            exit 1
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the marketplace PR
+        if: steps.update.outputs.skip != 'true'
+        working-directory: marketplace
+        env:
+          GH_TOKEN: ${{ secrets.MARKETPLACE_PAT }}
+          VERSION: ${{ steps.plugin.outputs.version }}
+          PLUGIN_SHA: ${{ steps.plugin.outputs.sha }}
+          SHORT_SHA: ${{ steps.plugin.outputs.short_sha }}
+          RELEASE_URL: ${{ inputs.release_url }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet plugins/external.json .github/plugin/marketplace.json; then
+            echo "awesome-copilot already pinned to ${VERSION} (${PLUGIN_SHA}); nothing to do."
+            exit 0
+          fi
+
+          git config user.name "apify-bot"
+          git config user.email "actions@apify.com"
+          git checkout -B "$PR_BRANCH"
+          git add plugins/external.json .github/plugin/marketplace.json
+          git commit -m "chore(${PLUGIN_NAME}): update plugin to v${VERSION} (${SHORT_SHA})"
+          gh auth setup-git
+          git push --force-with-lease origin "$PR_BRANCH"
+
+          fork_owner="${FORK%%/*}"
+          commit_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${PLUGIN_SHA}"
+          title="chore(${PLUGIN_NAME}): update plugin to v${VERSION} (${SHORT_SHA})"
+          body="Automated re-pin of the \`${PLUGIN_NAME}\` plugin to version \`${VERSION}\` at [\`${SHORT_SHA}\`](${commit_url}), opened by the \`sync-marketplace\` workflow in \`${GITHUB_REPOSITORY}\`."
+          if [ -n "${RELEASE_URL:-}" ]; then
+            body="${body}"$'\n\n'"Release notes: ${RELEASE_URL}"
+          fi
+
+          # `gh pr list --head` rejects "owner:branch", so filter the fork owner separately.
+          existing="$(gh pr list --repo "$UPSTREAM" \
+            --head "$PR_BRANCH" --base main --state open \
+            --json number,headRepositoryOwner \
+            --jq "map(select(.headRepositoryOwner.login == \"${fork_owner}\"))[0].number // empty")"
+
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --repo "$UPSTREAM" --title "$title" --body "$body"
+            echo "Updated existing PR #${existing}."
+          else
+            gh pr create --repo "$UPSTREAM" \
+              --base main \
+              --head "${fork_owner}:${PR_BRANCH}" \
+              --title "$title" \
+              --body "$body"
+          fi
