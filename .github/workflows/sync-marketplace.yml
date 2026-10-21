@@ -69,7 +69,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ env.FORK }}
-          token: ${{ secrets.MARKETPLACE_PAT }}
+          persist-credentials: false
           path: marketplace
           fetch-depth: 0
 
@@ -143,6 +143,7 @@ jobs:
           git checkout -B "$PR_BRANCH"
           git add plugins/external.json .github/plugin/marketplace.json
           git commit -m "chore(${PLUGIN_NAME}): update plugin to v${VERSION} (${SHORT_SHA})"
+          gh auth setup-git
           git push --force-with-lease origin "$PR_BRANCH"
 
           fork_owner="${FORK%%/*}"
