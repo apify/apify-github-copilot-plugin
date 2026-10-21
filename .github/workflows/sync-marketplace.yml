@@ -112,6 +112,13 @@ jobs:
           npm run plugin:validate
           npm run plugin:generate-marketplace
 
+          others='.plugins | map(select(.name != env.PLUGIN_NAME))'
+          if [ "$(git show HEAD:.github/plugin/marketplace.json | jq -c "$others")" != "$(jq -c "$others" .github/plugin/marketplace.json)" ]; then
+            git diff .github/plugin/marketplace.json
+            echo "::error::Regenerated marketplace.json changes entries other than '$PLUGIN_NAME'; $UPSTREAM main is stale. Re-run after upstream regenerates it."
+            exit 1
+          fi
+
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Open or update the marketplace PR
